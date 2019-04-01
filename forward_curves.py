@@ -1,7 +1,9 @@
-# -*- coding: utf-8 -*-
+#TODO: take a look at futures prices here:
+#https://ca.finance.yahoo.com/quote/CL%3DF/futures?p=CL%3DF
 import pandas as pd
 import requests
 import os
+import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 from dateutil.relativedelta import relativedelta
@@ -74,7 +76,38 @@ class eia_api_data:
         df = pd.concat(price_data, axis=0, sort=False, ignore_index=True)
         df['Date'] = df['Date'].astype('datetime64[ns]')
         return(df)
-    
+
+# futures curve functions
+
+#this gets a list of all days in a month, for a given input date.        
+def futures_dates(date):
+    date_list = []
+    year = str(date.year)
+    month = str(date.month)
+    ran = monthrange(date.year, date.month)
+    for d in range(1,ran[1]+1): #add the +1 to include months with 31 days!
+        date_string = year+'-'+month+'-'+str(d)
+        date_string = datetime.strptime(date_string,'%Y-%m-%d')
+        date_list.append(date_string)
+    return(date_list)
+
+#add all trade dates for future contracts:
+def product_futures(product_frame):
+    #add columns to determine how many months into the future the contract will apply
+    product_frame['months to add'] = [int(x[-1]) if x.find('Spot')==-1 else 0 for x in product_frame['Data']]
+    product_frame['futures date'] = [x+relativedelta(months=m) for x,m in zip(product_frame['Date'],product_frame['months to add'])]
+    product_frame['future trade dates'] = [futures_dates(x) if m != 0  else np.nan for x,m in zip(product_frame['futures date'],product_frame['months to add'])]
+    #add all potential trade dates
+    split = [x if x.find('Spot')!=-1 else 0 for x in wti_add['Data']][0]
+    futures = wti_add[wti_add['Data']!= str(split)]
+    flt = futures['future trade dates'].apply(pd.Series)
+    flt['pivot_id'] = flt.index
+    flt = pd.melt(flt,id_vars = 'pivot_id', value_name = 'trade dates')
+    flt = flt.drop('variable',axis=1)
+    flt = flt.dropna(axis=0)
+    #merge together all trade dates, with the futures contract prices.
+    merged = wti_add.merge(flt,how = 'left', left_index=True,right_on='pivot_id')
+    return(merged)
 #%%
 #main program
 s = sc.scrape(os.getcwd())
@@ -86,25 +119,16 @@ brent_list = ['PET.RBRTE.D']
 eia = eia_api_data(key)
 wti = eia.gather_prices(wti_list)
 brent = eia.gather_prices(brent_list)
-#%%
 wti_add = wti.copy()
-wti_add['months to add'] = [int(x[-1]) if x.find('Spot')==-1 else 0 for x in wti_add['Data']]
-wti_add['futures date'] = [x+relativedelta(months=m) for x,m in zip(wti_add['Date'],wti_add['months to add'])]
+
 #%%
-def futures_dates(date):
-    date_list = []
-    for date in wti_add['futures date']:
-        year = str(date.year)
-        month = str(date.month)
-        ran = monthrange(date.year, date.month)
-        for d in range(1,ran[1]):
-            date_string = year+'-'+month+'-'+str(d)
-            date_string = datetime.strptime(date_string,'%Y-%m-%d')
-            date_list.append(date_string)
-    return(date_list)
 
-wti_add['future trade dates'] = [futures_dates(x) for x in wti_add['futures date']]
+merged = product_futures(wti_add)
 
+
+
+
+#everything below here is garbage....
 #%%
 data_list = wti_add['Data'].unique()
 contract_dict = {}
