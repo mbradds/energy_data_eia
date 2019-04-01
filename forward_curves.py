@@ -4,12 +4,12 @@ import requests
 import os
 import matplotlib
 import matplotlib.pyplot as plt
+from dateutil.relativedelta import relativedelta
+import datetime
+from datetime import datetime
 headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
-module_path = r'/home/grant/Documents/web_scraping/scraping_modules'
-if module_path not in sys.path:
-    sys.path.insert(0,module_path)
-
-import scraping as sc
+from web_scraping.scraping_modules import scraping as sc
+from calendar import monthrange
 
 #%%
 
@@ -77,8 +77,7 @@ class eia_api_data:
     
 #%%
 #main program
-direc = '/home/grant/Documents/EIA'
-s = sc.scrape(direc)
+s = sc.scrape(os.getcwd())
 file = s.config_file('key.json')
 key = file['api_key']    
 
@@ -88,8 +87,51 @@ eia = eia_api_data(key)
 wti = eia.gather_prices(wti_list)
 brent = eia.gather_prices(brent_list)
 #%%
+wti_add = wti.copy()
+wti_add['months to add'] = [int(x[-1]) if x.find('Spot')==-1 else 0 for x in wti_add['Data']]
+wti_add['futures date'] = [x+relativedelta(months=m) for x,m in zip(wti_add['Date'],wti_add['months to add'])]
+#%%
+def futures_dates(date):
+    date_list = []
+    for date in wti_add['futures date']:
+        year = str(date.year)
+        month = str(date.month)
+        ran = monthrange(date.year, date.month)
+        for d in range(1,ran[1]):
+            date_string = year+'-'+month+'-'+str(d)
+            date_string = datetime.strptime(date_string,'%Y-%m-%d')
+            date_list.append(date_string)
+    return(date_list)
+
+wti_add['future trade dates'] = [futures_dates(x) for x in wti_add['futures date']]
+
+#%%
+data_list = wti_add['Data'].unique()
+contract_dict = {}
+
+for contract in data_list:
+    df = wti_add[wti_add['Data']== str(contract)] 
+    contract_dict.update({str(contract):df})
+#%%
+for key,value in contract_dict.items():
+    dates = value['futures date']
+    print(value[dates.isin(dates[dates.duplicated()])])
+    #df = value.pivot(index='futures date', columns='Data',values='Value')
+
+#split = [x if x.find('Spot')!=-1 else 0 for x in wti_add['Data']][0]
+#spot = wti_add[wti_add['Data']== str(split)]
+#futures = wti_add[wti_add['Data']!= str(split)]
+
+#spot_pivot = spot.pivot(index='futures date', columns='Data',values='Value')
+#futures_pivot = futures.pivot(index=None, columns='Data',values='Value')
+
+
+#%%
+
+
+#%%
 #graphing a preliminary analysis
-wti_pivot = df.pivot(index='Date', columns='Data',values='Value')
+wti_pivot = wti.pivot(index='Date', columns='Data',values='Value')
 #filter based on date
 wti_pivot = wti_pivot.loc['2014-01-01':]
 
@@ -97,6 +139,7 @@ fig, ax = plt.subplots(figsize=(12, 9))
 ax.plot(wti_pivot)
 ax.legend(wti_pivot.columns)
 
+#%%
 
 
-
+int('b')==True
