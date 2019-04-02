@@ -98,16 +98,29 @@ def product_futures(product_frame):
     product_frame['futures date'] = [x+relativedelta(months=m) for x,m in zip(product_frame['Date'],product_frame['months to add'])]
     product_frame['future trade dates'] = [futures_dates(x) if m != 0  else np.nan for x,m in zip(product_frame['futures date'],product_frame['months to add'])]
     #add all potential trade dates
-    split = [x if x.find('Spot')!=-1 else 0 for x in wti_add['Data']][0]
-    futures = wti_add[wti_add['Data']!= str(split)]
+    split = [x if x.find('Spot')!=-1 else 0 for x in product_frame['Data']][0]
+    futures = product_frame[product_frame['Data']!= str(split)]
     flt = futures['future trade dates'].apply(pd.Series)
     flt['pivot_id'] = flt.index
     flt = pd.melt(flt,id_vars = 'pivot_id', value_name = 'trade dates')
     flt = flt.drop('variable',axis=1)
     flt = flt.dropna(axis=0)
     #merge together all trade dates, with the futures contract prices.
-    merged = wti_add.merge(flt,how = 'left', left_index=True,right_on='pivot_id')
+    merged = product_frame.merge(flt,how = 'left', left_index=True,right_on='pivot_id')
+    merged = merged.drop('future trade dates', axis=1)
+    merged = merged.drop('pivot_id',axis=1)
+    merged = merged.drop('futures date',axis=1)
     return(merged)
+
+def first_graph(df):
+    df_pivot = df.pivot(index='Date', columns='Data',values='Value')
+    #filter based on date
+    df_pivot = df_pivot.loc['2014-01-01':]
+    
+    fig, ax = plt.subplots(figsize=(12, 9))
+    ax.plot(df_pivot)
+    ax.legend(df_pivot.columns)
+
 #%%
 #main program
 s = sc.scrape(os.getcwd())
@@ -120,50 +133,64 @@ eia = eia_api_data(key)
 wti = eia.gather_prices(wti_list)
 brent = eia.gather_prices(brent_list)
 wti_add = wti.copy()
+#%%
+merged = product_futures(wti_add)
+merged = merged[(merged['Date']>'2018-01-01')]
+#%%
+merged.to_csv(r'C:\Users\mossgrant\merged.csv')
 
 #%%
-
-merged = product_futures(wti_add)
-
-
-
+def graph_forward(merged,forward_dates):
+    split = [x if x.find('Spot')!=-1 else 0 for x in merged['Data']][0]
+    merged_futures = merged[merged['Data']!= str(split)]
+    merged_spot = merged[merged['Data']== str(split)]
+    
+    x_spot = merged_spot['Date']
+    y_spot = merged_spot['Value']
+    
+    fig, ax = plt.subplots(figsize=(12, 9))
+    ax.plot(x_spot,y_spot,label = 'WTI Spot Price')
+  
+    
+    for fd in forward_dates:
+        #plot a dot on the spot line where the futures curve applies:
+        spot_dot = merged_spot[(merged_spot['Date']==str(fd))]
+        x_dot = spot_dot['Date']
+        y_dot = spot_dot['Value']
+        ax.plot(x_dot, y_dot, marker='o', markersize=10,label = None)
+        
+        
+        futures_plot = merged_futures[(merged_futures['Date']==str(fd))]
+        x_fut = futures_plot['trade dates']
+        y_fut = futures_plot['Value']
+        ax.plot(x_fut, y_fut, label = fd)
+        
+        
+    ax.legend(loc='best')
+    return(fig)
 
 #everything below here is garbage....
 #%%
-data_list = wti_add['Data'].unique()
-contract_dict = {}
-
-for contract in data_list:
-    df = wti_add[wti_add['Data']== str(contract)] 
-    contract_dict.update({str(contract):df})
-#%%
-for key,value in contract_dict.items():
-    dates = value['futures date']
-    print(value[dates.isin(dates[dates.duplicated()])])
-    #df = value.pivot(index='futures date', columns='Data',values='Value')
-
-#split = [x if x.find('Spot')!=-1 else 0 for x in wti_add['Data']][0]
-#spot = wti_add[wti_add['Data']== str(split)]
-#futures = wti_add[wti_add['Data']!= str(split)]
-
-#spot_pivot = spot.pivot(index='futures date', columns='Data',values='Value')
-#futures_pivot = futures.pivot(index=None, columns='Data',values='Value')
+forward_dates = ['2018-03-26','2019-03-25','2018-10-05']
+fig = graph_forward(merged,forward_dates)   
 
 
 #%%
+#for the rest of the callendar month, after the 25th, contract one applies for the second month following
+date_string = ''
+date_string = datetime.strptime(date_string,'%Y-%m-%d')
 
 
 #%%
-#graphing a preliminary analysis
-wti_pivot = wti.pivot(index='Date', columns='Data',values='Value')
-#filter based on date
-wti_pivot = wti_pivot.loc['2014-01-01':]
-
-fig, ax = plt.subplots(figsize=(12, 9))
-ax.plot(wti_pivot)
-ax.legend(wti_pivot.columns)
-
-#%%
-
-
-int('b')==True
+#split up into seperate dataframes:
+    
+#data_list = wti_add['Data'].unique()
+#contract_dict = {}
+#
+#for contract in data_list:
+#    df = wti_add[wti_add['Data']== str(contract)] 
+#    contract_dict.update({str(contract):df})
+#    
+#for key,value in contract_dict.items():
+#    dates = value['futures date']
+#    print(value[dates.isin(dates[dates.duplicated()])])
