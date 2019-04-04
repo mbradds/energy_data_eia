@@ -10,9 +10,9 @@ from dateutil.relativedelta import relativedelta
 import datetime
 from datetime import datetime
 headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
-from web_scraping.scraping_modules import scraping as sc
+from Documents.web_scraping.scraping_modules import scraping as sc
 from calendar import monthrange
-
+from pandas.tseries.offsets import BDay
 #%%
 
 class eia_api_data:
@@ -106,7 +106,8 @@ def product_futures(product_frame):
     flt = flt.drop('variable',axis=1)
     flt = flt.dropna(axis=0)
     #merge together all trade dates, with the futures contract prices.
-    merged = product_frame.merge(flt,how = 'left', left_index=True,right_on='pivot_id')
+    merged = product_frame.merge(flt,how = 'left', left_index=True18-10-05']
+fig = graph_forward(merged,forward_dates)   ,right_on='pivot_id')
     merged = merged.drop('future trade dates', axis=1)
     merged = merged.drop('pivot_id',axis=1)
     merged = merged.drop('futures date',axis=1)
@@ -124,7 +125,8 @@ def first_graph(df):
 #%%
 #main program
 s = sc.scrape(os.getcwd())
-file = s.config_file('key.json')
+file = s.config_file('key.json')18-10-05']
+fig = graph_forward(merged,forward_dates)   
 key = file['api_key']    
 
 wti_list = ['PET.RWTC.D','PET.RCLC1.D','PET.RCLC2.D','PET.RCLC3.D','PET.RCLC4.D']
@@ -141,9 +143,14 @@ merged.to_csv(r'C:\Users\mossgrant\merged.csv')
 
 #%%
 def graph_forward(merged,forward_dates):
+    """ 
+    TODO: add docstrings to heat functions
+    TODO: find the most recent date and graph it, with appropriate label. Also include +/- day over day
+    """
     split = [x if x.find('Spot')!=-1 else 0 for x in merged['Data']][0]
     merged_futures = merged[merged['Data']!= str(split)]
-    merged_spot = merged[merged['Data']== str(split)]
+    merged_spot = merged[merged['Data']== str(split)]18-10-05']
+fig = graph_forward(merged,forward_dates)   
     
     x_spot = merged_spot['Date']
     y_spot = merged_spot['Value']
@@ -173,12 +180,26 @@ def graph_forward(merged,forward_dates):
 #%%
 forward_dates = ['2018-03-26','2019-03-25','2018-10-05']
 fig = graph_forward(merged,forward_dates)   
-
+18-10-05']
+fig = graph_forward(merged,forward_dates)   
 
 #%%
+#create a function that 
 #for the rest of the callendar month, after the 25th, contract one applies for the second month following
-date_string = ''
-date_string = datetime.strptime(date_string,'%Y-%m-%d')
+def business_day(date):
+    #the commented line below changes string to date if neccecary.
+    #date = datetime.strptime(date_string,'%Y-%m-%d')
+    business = bool(len(pd.bdate_range(date, date)))
+    return(business)
+
+def nymex_rules(date):
+    business = business_
+    
+    
+date_string = '2019-04-06'
+date = datetime.strptime(date_string,'%Y-%m-%d')
+x = business_day(date)
+print(x)
 
 
 #%%
