@@ -10,11 +10,11 @@ from dateutil.relativedelta import relativedelta
 import datetime
 from datetime import datetime
 headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
-from Documents.web_scraping.scraping_modules import scraping as sc
+#from web_scraping.scraping_modules import scraping as sc
 from calendar import monthrange
 from pandas.tseries.offsets import BDay
 #%%
-
+#TODO: get a column in the data that says what the product is. If WTI, then apply WTI trading rules, etc
 class eia_api_data:
     
     def __init__(self,key):
@@ -79,6 +79,40 @@ class eia_api_data:
 
 # futures curve functions
 
+def business_day(date):
+    #the commented line below changes string to date if neccecary.
+    #date = datetime.strptime(date_string,'%Y-%m-%d')
+    business = bool(len(pd.bdate_range(date, date)))
+    return(business)
+
+def nymex_rules(date):
+    #returns the last trade date of any given date
+    
+    cutoff_str = str(date.year)+'-'+str(date.month)+'-'+str(25)
+    cutoff = datetime.strptime(cutoff_str,'%Y-%m-%d')
+    
+    #determine if the 25th of the month is a business day. If not, then find the next business day
+    
+    #if not business_day(cutoff):
+    
+    while not business_day(cutoff):
+        cutoff = cutoff - relativedelta(days=1)
+    
+    three_days = 0
+    while three_days < 3:
+        
+        cutoff = cutoff - relativedelta(days=1)
+        
+        if business_day(cutoff):
+            three_days = three_days+1
+    
+    return(cutoff) 
+    #test the function
+    #date_string = '2019-09-10'
+    #date = datetime.strptime(date_string,'%Y-%m-%d')
+    #x = nymex_rules(date)
+    #print(x)
+
 #this gets a list of all days in a month, for a given input date.        
 def futures_dates(date):
     date_list = []
@@ -95,6 +129,12 @@ def futures_dates(date):
 def product_futures(product_frame):
     #add columns to determine how many months into the future the contract will apply
     product_frame['months to add'] = [int(x[-1]) if x.find('Spot')==-1 else 0 for x in product_frame['Data']]
+    #calculate the cutoff for all dates. If a date for any contract is > cutoff, then the months to add needs to incease by 1!
+    product_frame['cutoff'] = [nymex_rules(x) if r in [1,2,3,4] else np.nan for x,r in zip(product_frame['Date'],product_frame['months to add'])]
+    
+    #months to add needs to be increased by one, if the date is greater than the contract one cutoff, specified in the rules
+    product_frame['months to add'] = [x+1 if ltd>d else x for x, ltd,d in zip(product_frame['months to add'],product_frame['cutoff'],product_frame['Date'])]
+    
     product_frame['futures date'] = [x+relativedelta(months=m) for x,m in zip(product_frame['Date'],product_frame['months to add'])]
     product_frame['future trade dates'] = [futures_dates(x) if m != 0  else np.nan for x,m in zip(product_frame['futures date'],product_frame['months to add'])]
     #add all potential trade dates
@@ -106,8 +146,7 @@ def product_futures(product_frame):
     flt = flt.drop('variable',axis=1)
     flt = flt.dropna(axis=0)
     #merge together all trade dates, with the futures contract prices.
-    merged = product_frame.merge(flt,how = 'left', left_index=True18-10-05']
-fig = graph_forward(merged,forward_dates)   ,right_on='pivot_id')
+    merged = product_frame.merge(flt,how = 'left', left_index=True,right_on='pivot_id')
     merged = merged.drop('future trade dates', axis=1)
     merged = merged.drop('pivot_id',axis=1)
     merged = merged.drop('futures date',axis=1)
@@ -122,26 +161,6 @@ def first_graph(df):
     ax.plot(df_pivot)
     ax.legend(df_pivot.columns)
 
-#%%
-#main program
-s = sc.scrape(os.getcwd())
-file = s.config_file('key.json')18-10-05']
-fig = graph_forward(merged,forward_dates)   
-key = file['api_key']    
-
-wti_list = ['PET.RWTC.D','PET.RCLC1.D','PET.RCLC2.D','PET.RCLC3.D','PET.RCLC4.D']
-brent_list = ['PET.RBRTE.D']
-eia = eia_api_data(key)
-wti = eia.gather_prices(wti_list)
-brent = eia.gather_prices(brent_list)
-wti_add = wti.copy()
-#%%
-merged = product_futures(wti_add)
-merged = merged[(merged['Date']>'2018-01-01')]
-#%%
-merged.to_csv(r'C:\Users\mossgrant\merged.csv')
-
-#%%
 def graph_forward(merged,forward_dates):
     """ 
     TODO: add docstrings to heat functions
@@ -149,8 +168,7 @@ def graph_forward(merged,forward_dates):
     """
     split = [x if x.find('Spot')!=-1 else 0 for x in merged['Data']][0]
     merged_futures = merged[merged['Data']!= str(split)]
-    merged_spot = merged[merged['Data']== str(split)]18-10-05']
-fig = graph_forward(merged,forward_dates)   
+    merged_spot = merged[merged['Data']== str(split)]
     
     x_spot = merged_spot['Date']
     y_spot = merged_spot['Value']
@@ -176,30 +194,35 @@ fig = graph_forward(merged,forward_dates)
     ax.legend(loc='best')
     return(fig)
 
+#%%
+#main program
+s = sc.scrape(os.getcwd())
+file = s.config_file('key.json')
+key = file['api_key']    
+
+wti_list = ['PET.RWTC.D','PET.RCLC1.D','PET.RCLC2.D','PET.RCLC3.D','PET.RCLC4.D']
+brent_list = ['PET.RBRTE.D']
+eia = eia_api_data(key)
+wti = eia.gather_prices(wti_list)
+brent = eia.gather_prices(brent_list)
+wti_add = wti.copy()
+#%%
+merged = product_futures(wti_add)
+merged = merged[(merged['Date']>'2018-01-01')]
+#%%
+#merged.to_csv(r'C:\Users\mossgrant\merged.csv')
+
 #everything below here is garbage....
 #%%
 forward_dates = ['2018-03-26','2019-03-25','2018-10-05']
 fig = graph_forward(merged,forward_dates)   
-18-10-05']
 fig = graph_forward(merged,forward_dates)   
 
 #%%
-#create a function that 
-#for the rest of the callendar month, after the 25th, contract one applies for the second month following
-def business_day(date):
-    #the commented line below changes string to date if neccecary.
-    #date = datetime.strptime(date_string,'%Y-%m-%d')
-    business = bool(len(pd.bdate_range(date, date)))
-    return(business)
 
-def nymex_rules(date):
-    business = business_
-    
-    
-date_string = '2019-04-06'
-date = datetime.strptime(date_string,'%Y-%m-%d')
-x = business_day(date)
-print(x)
+#wti_last = wti.copy()
+#wti_last['months to add'] = [int(x[-1]) if x.find('Spot')==-1 else 0 for x in wti_last['Data']]
+#wti_last['cutoff'] = [nymex_rules(x) if r in [1,2,3,4] else np.nan for x,r in zip(wti_last['Date'],wti_last['months to add'])]
 
 
 #%%
