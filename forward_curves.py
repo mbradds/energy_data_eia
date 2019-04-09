@@ -10,7 +10,7 @@ from dateutil.relativedelta import relativedelta
 import datetime
 from datetime import datetime
 headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
-from Documents.web_scraping.scraping_modules import scraping as sc
+from web_scraping.scraping_modules import scraping as sc
 from calendar import monthrange
 from pandas.tseries.offsets import BDay
 #%%
@@ -120,6 +120,34 @@ def futures_dates(date):
         date_list.append(date_string)
     return(date_list)
 
+
+#this function does all the data transformation needed for futures curves. The input(dataframe) will change depending on if the user wants
+#to calculate futures curves for all possible dates, or a given input list    
+def transformation(df):
+        df['months to add'] = [int(x[-1]) if x.find('Spot')==-1 else 0 for x in df['Data']]
+        #calculate the cutoff for all dates. If a date for any contract is > cutoff, then the months to add needs to incease by 1!
+        df['cutoff'] = [nymex_rules(x) if r in [1,2,3,4] else np.nan for x,r in zip(df['Date'],df['months to add'])]
+        
+        #months to add needs to be increased by one, if the date is greater than the contract one cutoff, specified in the rules
+        df['months to add'] = [x+1 if ltd<d else x for x, ltd,d in zip(df['months to add'],df['cutoff'],df['Date'])]
+        
+        df['futures date'] = [x+relativedelta(months=m) for x,m in zip(df['Date'],df['months to add'])]
+        df['future trade dates'] = [futures_dates(x) if m != 0  else np.nan for x,m in zip(df['futures date'],df['months to add'])]
+        #add all potential trade dates
+        split = [x if x.find('Spot')!=-1 else 0 for x in df['Data']][0]
+        futures = df[df['Data']!= str(split)]
+        flt = futures['future trade dates'].apply(pd.Series)
+        flt['pivot_id'] = flt.index
+        flt = pd.melt(flt,id_vars = 'pivot_id', value_name = 'trade dates')
+        flt = flt.drop('variable',axis=1)
+        flt = flt.dropna(axis=0)
+        #merge together all trade dates, with the futures contract prices.
+        merged = df.merge(flt,how = 'left', left_index=True,right_on='pivot_id')
+        merged = merged.drop('future trade dates', axis=1)
+        merged = merged.drop('pivot_id',axis=1)
+        merged = merged.drop('futures date',axis=1)
+        return(merged)
+    
 #add all trade dates for future contracts:
 #TODO: add option to calculate all dates, or the given list of dates used in the graph
 def product_futures(product_frame,specified_dates=None,all_data = False):
@@ -128,34 +156,20 @@ def product_futures(product_frame,specified_dates=None,all_data = False):
         raise Exception('A list of dates was not specified. Either provide a list of dates, or set all_date=True')
     
     if specified_dates != None and all_data == False:
+        #use this when only a few futures curves need to be calculated
         #only calculate futures curves for specified start dates
-        None
+        #TODO: dont include spot prices. Add all spot prices to df at the end
+        #TODO: dont pass any spot prices to the transformation function. This is useless! Append spor prices later!
+        l = []
+        for date in specified_dates:
+            slicer = product_frame[(product_frame['Date']==date)]
+            x = transformation(slicer)
+            l.append(x)
+            df = pd.concat(l)
+        return(df)
     
     elif specified_dates == None and all_data:  
-        #add columns to determine how many months into the future the contract will apply
-        product_frame['months to add'] = [int(x[-1]) if x.find('Spot')==-1 else 0 for x in product_frame['Data']]
-        #calculate the cutoff for all dates. If a date for any contract is > cutoff, then the months to add needs to incease by 1!
-        product_frame['cutoff'] = [nymex_rules(x) if r in [1,2,3,4] else np.nan for x,r in zip(product_frame['Date'],product_frame['months to add'])]
-        
-        #months to add needs to be increased by one, if the date is greater than the contract one cutoff, specified in the rules
-        product_frame['months to add'] = [x+1 if ltd<d else x for x, ltd,d in zip(product_frame['months to add'],product_frame['cutoff'],product_frame['Date'])]
-        
-        product_frame['futures date'] = [x+relativedelta(months=m) for x,m in zip(product_frame['Date'],product_frame['months to add'])]
-        product_frame['future trade dates'] = [futures_dates(x) if m != 0  else np.nan for x,m in zip(product_frame['futures date'],product_frame['months to add'])]
-        #add all potential trade dates
-        split = [x if x.find('Spot')!=-1 else 0 for x in product_frame['Data']][0]
-        futures = product_frame[product_frame['Data']!= str(split)]
-        flt = futures['future trade dates'].apply(pd.Series)
-        flt['pivot_id'] = flt.index
-        flt = pd.melt(flt,id_vars = 'pivot_id', value_name = 'trade dates')
-        flt = flt.drop('variable',axis=1)
-        flt = flt.dropna(axis=0)
-        #merge together all trade dates, with the futures contract prices.
-        merged = product_frame.merge(flt,how = 'left', left_index=True,right_on='pivot_id')
-        merged = merged.drop('future trade dates', axis=1)
-        merged = merged.drop('pivot_id',axis=1)
-        merged = merged.drop('futures date',axis=1)
-        return(merged)
+        return(transformation(product_frame))
     
     else: 
         raise Exception('Either provide a list of spot dates, or set all_data=True')
@@ -215,28 +229,28 @@ wti = eia.gather_prices(wti_list)
 brent = eia.gather_prices(brent_list)
 wti_add = wti.copy()
 #%%
-merged = product_futures(wti_add,all_data=True)
-merged = merged[(merged['Date']>'2018-01-01')]
+forward_dates = ['2018-04-02','2019-04-01','2018-10-05']
+#merged = product_futures(wti_add,all_data=True)
+merged = product_futures(wti_add,specified_dates=forward_dates)
+#merged = merged[(merged['Date']>'2018-01-01')]
 #%%
 #merged.to_csv(r'C:\Users\mossgrant\merged.csv')
 
 #%%
-forward_dates = ['2018-04-02','2019-04-01','2018-10-05']
-fig = graph_forward(merged,forward_dates)   
-fig = graph_forward(merged,forward_dates)   
+fig = graph_forward(merged,forward_dates)     
 
 #%%
 #use this as an example of how to loop through and isolate the dates specified!
 wti_last = wti.copy()
 l = []
-#futures_curves = pd.DataFrame()
+futures_curves = pd.DataFrame()
 for date in forward_dates:
     slicer = wti_last[(wti_last['Date']==date)]
     slicer['months to add'] = [int(x[-1]) if x.find('Spot')==-1 else 0 for x in slicer['Data']]
     slicer['cutoff'] = [nymex_rules(x) if r in [1,2,3,4] else np.nan for x,r in zip(slicer['Date'],slicer['months to add'])]
     l.append(slicer)
 
-futures_curves = pd.concat(l)
+#futures_curves = pd.concat(l)
 
 #%%
 #split up into seperate dataframes:
