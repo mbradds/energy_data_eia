@@ -41,6 +41,18 @@ class eia_api_data:
         df['series id'] = series_id
         return(df)
         
+    #this fuction returns the JSON associated with an EIA API request
+    def return_js(self,category_id,key,category):
+        if category:
+            url = 'http://api.eia.gov/category/?api_key=YOUR_API_KEY_HERE&category_id=CATEGORY'
+        else:
+            
+            url = 'http://api.eia.gov/series/?api_key=YOUR_API_KEY_HERE&series_id=CATEGORY'
+        url = self.add_key(url)
+        url = url.replace('CATEGORY',str(category_id))
+        r = requests.get(url, allow_redirects=True, stream=True, headers=headers).json()
+        return(r)
+        
     def return_json(self,category_id,key,category):
         if category:
             url = 'http://api.eia.gov/category/?api_key=YOUR_API_KEY_HERE&category_id=CATEGORY'
@@ -50,7 +62,6 @@ class eia_api_data:
         url = self.add_key(url)
         url = url.replace('CATEGORY',str(category_id))
         r = requests.get(url, allow_redirects=True, stream=True, headers=headers).json()
-        
         if not category:
             #get the actual data and reutn the df. More 'columns' could be added.
             df = self.return_df(r)
@@ -108,6 +119,13 @@ def nymex_rules(date):
     
     return(cutoff) 
 
+#splits a flat dataframe into spot and futures dataframes
+def spot_futures(df):
+    split = [x if x.find('Spot')!=-1 else 0 for x in df['Data']][0]
+    futures = df[df['Data']!= str(split)]
+    spot = df[df['Data']== str(split)]
+    return(spot,futures)
+
 #this gets a list of all days in a month, for a given input date.        
 def futures_dates(date):
     date_list = []
@@ -150,7 +168,9 @@ def transformation(df):
     
 #add all trade dates for future contracts:
 #TODO: add option to calculate all dates, or the given list of dates used in the graph
-def product_futures(product_frame,specified_dates=None,all_data = False):
+def product_futures(product_frame,specified_dates=None,all_data = False):    
+    
+    #spot, futures = spot_futures(product_frame)
     
     if not all_data and specified_dates == None:
         raise Exception('A list of dates was not specified. Either provide a list of dates, or set all_date=True')
@@ -162,7 +182,7 @@ def product_futures(product_frame,specified_dates=None,all_data = False):
         #TODO: dont pass any spot prices to the transformation function. This is useless! Append spor prices later!
         l = []
         for date in specified_dates:
-            slicer = product_frame[(product_frame['Date']==date)]
+            slicer = product_frame[(product_frame['Date']==date)].copy() #adding .copy() avoids a setting with copy warning
             x = transformation(slicer)
             l.append(x)
             df = pd.concat(l)
@@ -183,14 +203,19 @@ def first_graph(df):
     ax.plot(df_pivot)
     ax.legend(df_pivot.columns)
 
-def graph_forward(merged,forward_dates):
+def graph_forward(merged,spot,forward_dates):
     """ 
     TODO: add docstrings to heat functions
     TODO: find the most recent date and graph it, with appropriate label. Also include +/- day over day
     """
-    split = [x if x.find('Spot')!=-1 else 0 for x in merged['Data']][0]
-    merged_futures = merged[merged['Data']!= str(split)]
-    merged_spot = merged[merged['Data']== str(split)]
+    #get the minimum date in order to cut off spot prices on graph
+    dates_list = [datetime.strptime(date, '%Y-%m-%d').date() for date in forward_dates]
+    min_date = min(dates_list)
+    
+    #TODO: refactor these names
+    spot = spot[(spot['Date'] >= min_date)]
+    merged_futures = merged
+    merged_spot = spot
     
     x_spot = merged_spot['Date']
     y_spot = merged_spot['Value']
@@ -231,26 +256,15 @@ wti_add = wti.copy()
 #%%
 forward_dates = ['2018-04-02','2019-04-01','2018-10-05']
 #merged = product_futures(wti_add,all_data=True)
-merged = product_futures(wti_add,specified_dates=forward_dates)
+spot,futures = spot_futures(wti)
+merged = product_futures(futures,specified_dates=forward_dates)
 #merged = merged[(merged['Date']>'2018-01-01')]
 #%%
 #merged.to_csv(r'C:\Users\mossgrant\merged.csv')
 
 #%%
-fig = graph_forward(merged,forward_dates)     
-
-#%%
-#use this as an example of how to loop through and isolate the dates specified!
-wti_last = wti.copy()
-l = []
-futures_curves = pd.DataFrame()
-for date in forward_dates:
-    slicer = wti_last[(wti_last['Date']==date)]
-    slicer['months to add'] = [int(x[-1]) if x.find('Spot')==-1 else 0 for x in slicer['Data']]
-    slicer['cutoff'] = [nymex_rules(x) if r in [1,2,3,4] else np.nan for x,r in zip(slicer['Date'],slicer['months to add'])]
-    l.append(slicer)
-
-#futures_curves = pd.concat(l)
+#default min date should be the min specified_date
+fig = graph_forward(merged,spot,forward_dates)     
 
 #%%
 #split up into seperate dataframes:
