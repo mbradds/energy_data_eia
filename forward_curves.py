@@ -194,6 +194,7 @@ def product_futures(product_frame,specified_dates=None,all_data = False):
     else: 
         raise Exception('Either provide a list of spot dates, or set all_data=True')
 
+#used to graph the data before adding futures curves
 def first_graph(df):
     df_pivot = df.pivot(index='Date', columns='Data',values='Value')
     #filter based on date
