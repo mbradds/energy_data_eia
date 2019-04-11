@@ -214,7 +214,7 @@ def graph_forward(merged,spot,forward_dates):
     min_date = min(dates_list)
     
     #TODO: refactor these names
-    spot = spot[(spot['Date'] >= min_date)]
+    spot = spot[(spot['Date'] >= pd.Timestamp(min_date))] #adding pd.Timestamp is neccecary to avoid a matplotlib warning
     merged_futures = merged
     merged_spot = spot
     
