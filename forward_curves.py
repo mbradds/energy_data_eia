@@ -89,6 +89,44 @@ class eia_api_data:
         return(df)
 
 # futures curve functions
+        
+#calculates the daily return of eia contract data
+def contract_returns(df):
+    ret = df.copy()
+    ret = ret.pivot(index='Date', columns='Data',values='Value')
+
+    for x in ret.columns:
+        if x.find('Spot') != -1:
+            spot = x
+        elif x.find('1') != -1:
+            contract_1 = x
+        elif x.find('2') != -1:
+            contract_2 = x
+        elif x.find('3') != -1:
+            contract_3 = x
+        elif x.find('4') != -1:
+            contract_4 = x
+        else:
+            None
+        
+    ret['contract_4 - contract_1'] = ret[contract_4] - ret[contract_1]
+    ret['contract_3 - contract_1'] = ret[contract_3] - ret[contract_1]
+    ret['contract_2 - contract_1'] = ret[contract_2] - ret[contract_1] 
+    ret['contract_4 - contract_3'] = ret[contract_4] - ret[contract_3]   
+    ret['contract_3 - contract_2'] = ret[contract_3] - ret[contract_2]
+    ret['contract_4 - Spot'] = ret[contract_4] - ret[spot]
+    ret['contract_3 - Spot'] = ret[contract_3] - ret[spot]
+    ret['contract_2 - Spot'] = ret[contract_3] - ret[spot]
+    ret['contract_1 - Spot'] = ret[contract_1] - ret[spot]
+    
+    ret['spot daily return'] = ret[spot] - ret[spot].shift(1)
+    ret['contract 1 daily return'] = ret[contract_1] - ret[contract_1].shift(1)
+    ret['contract 2 daily return'] = ret[contract_2] - ret[contract_2].shift(1)
+    ret['contract 3 daily return'] = ret[contract_3] - ret[contract_3].shift(1)
+    ret['contract 4 daily return'] = ret[contract_4] - ret[contract_4].shift(1)
+    
+    return(ret)
+        
 
 def business_day(date):
     #the commented line below changes string to date if neccecary.
@@ -165,12 +203,22 @@ def transformation(df):
         merged = merged.drop('pivot_id',axis=1)
         merged = merged.drop('futures date',axis=1)
         return(merged)
-    
+
+#this function uses split-apply-combine (https://pandas.pydata.org/pandas-docs/stable/user_guide/groupby.html)
+def apply_days(df):
+    grouped = df.groupby('Date')
+    l = []
+    for name, group in grouped:
+        group = group.copy()
+        group['day'] = np.arange(len(group))
+        l.append(group)
+        
+    df = pd.concat(l)
+    return(df)
 #add all trade dates for future contracts:
 #TODO: add option to calculate all dates, or the given list of dates used in the graph
 def product_futures(product_frame,specified_dates=None,all_data = False):    
     
-    #spot, futures = spot_futures(product_frame)
     
     if not all_data and specified_dates == None:
         raise Exception('A list of dates was not specified. Either provide a list of dates, or set all_date=True')
@@ -186,13 +234,17 @@ def product_futures(product_frame,specified_dates=None,all_data = False):
             x = transformation(slicer)
             l.append(x)
             df = pd.concat(l)
-        return(df)
+        df = apply_days(df)
     
     elif specified_dates == None and all_data:  
-        return(transformation(product_frame))
+        df = transformation(product_frame.copy())
+        df = apply_days(df)
     
     else: 
-        raise Exception('Either provide a list of spot dates, or set all_data=True')
+        None
+    #TODO: order the dataframe in a way that makes sense
+    return(df)
+
 
 #used to graph the data before adding futures curves
 def first_graph(df):
@@ -204,7 +256,7 @@ def first_graph(df):
     ax.plot(df_pivot)
     ax.legend(df_pivot.columns)
 
-def graph_forward(merged,spot,forward_dates):
+def graph_overlay(merged,spot,forward_dates):
     """ 
     TODO: add docstrings to heat functions
     TODO: find the most recent date and graph it, with appropriate label. Also include +/- day over day
@@ -242,6 +294,19 @@ def graph_forward(merged,spot,forward_dates):
     ax.legend(loc='best')
     return(fig)
 
+def graph_curves(df):
+
+    df = apply_days(df)
+    fig, ax = plt.subplots(figsize=(12, 9))
+    for x in df['Date'].unique():
+        
+        graph = df[(df['Date']==str(x))]
+        x_ = graph['day']
+        y_ = graph['Value']
+        ax.plot(x_,y_,label = x)
+    ax.legend(loc='best')
+    return(fig)
+
 #%%
 #main program
 s = sc.scrape(os.getcwd())
@@ -258,25 +323,15 @@ wti_add = wti.copy()
 forward_dates = ['2018-04-02','2019-04-01','2018-10-05']
 #merged = product_futures(wti_add,all_data=True)
 spot,futures = spot_futures(wti)
-merged = product_futures(futures,specified_dates=forward_dates)
-#merged = merged[(merged['Date']>'2018-01-01')]
-#%%
-#merged.to_csv(r'C:\Users\mossgrant\merged.csv')
+merged = product_futures(futures,specified_dates=None,all_data=True)
+merged.to_csv(r'C:\Users\mossgrant\data_files\fwd.csv',index=False)
 
+#%%
+ret = contract_returns(wti_add)
+ret.to_csv(r'C:\Users\mossgrant\data_files\contract_returns.csv',index=False)
 #%%
 #default min date should be the min specified_date
-fig = graph_forward(merged,spot,forward_dates)     
+fig = graph_overlay(merged,spot,forward_dates)     
+fig2 = graph_curves(merged)
 
 #%%
-#split up into seperate dataframes:
-    
-#data_list = wti_add['Data'].unique()
-#contract_dict = {}
-#
-#for contract in data_list:
-#    df = wti_add[wti_add['Data']== str(contract)] 
-#    contract_dict.update({str(contract):df})
-#    
-#for key,value in contract_dict.items():
-#    dates = value['futures date']
-#    print(value[dates.isin(dates[dates.duplicated()])])
