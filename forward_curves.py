@@ -3,18 +3,16 @@
 import pandas as pd
 import requests
 import os
+import math
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt 
 from dateutil.relativedelta import relativedelta
-import datetime
 from datetime import datetime
 headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
 from web_scraping.scraping_modules import scraping as sc
 from calendar import monthrange
-from pandas.tseries.offsets import BDay
 #%%
-#TODO: get a column in the data that says what the product is. If WTI, then apply WTI trading rules, etc
 class eia_api_data:
     
     def __init__(self,key):
@@ -125,6 +123,8 @@ def contract_returns(df):
     ret['contract 3 daily return'] = ret[contract_3] - ret[contract_3].shift(1)
     ret['contract 4 daily return'] = ret[contract_4] - ret[contract_4].shift(1)
     
+    ret = ret.reset_index()
+    
     return(ret)
         
 
@@ -215,8 +215,8 @@ def apply_days(df):
         
     df = pd.concat(l)
     return(df)
+    
 #add all trade dates for future contracts:
-#TODO: add option to calculate all dates, or the given list of dates used in the graph
 def product_futures(product_frame,specified_dates=None,all_data = False):    
     
     
@@ -226,8 +226,6 @@ def product_futures(product_frame,specified_dates=None,all_data = False):
     if specified_dates != None and all_data == False:
         #use this when only a few futures curves need to be calculated
         #only calculate futures curves for specified start dates
-        #TODO: dont include spot prices. Add all spot prices to df at the end
-        #TODO: dont pass any spot prices to the transformation function. This is useless! Append spor prices later!
         l = []
         for date in specified_dates:
             slicer = product_frame[(product_frame['Date']==date)].copy() #adding .copy() avoids a setting with copy warning
@@ -245,6 +243,12 @@ def product_futures(product_frame,specified_dates=None,all_data = False):
     #TODO: order the dataframe in a way that makes sense
     return(df)
 
+def graph_colors(n):
+    co = ['b','g','r','c','m','y','k','w']
+    r = int(math.ceil(n/len(co)))
+    color_list = co*r
+    color_list = color_list[:n]
+    return(color_list)
 
 #used to graph the data before adding futures curves
 def first_graph(df):
@@ -275,20 +279,22 @@ def graph_overlay(merged,spot,forward_dates):
     
     fig, ax = plt.subplots(figsize=(12, 9))
     ax.plot(x_spot,y_spot,label = 'WTI Spot Price')
+    
+    colors = graph_colors(len(forward_dates))
   
     
-    for fd in forward_dates:
+    for fd,color in zip(forward_dates,colors):
         #plot a dot on the spot line where the futures curve applies:
         spot_dot = merged_spot[(merged_spot['Date']==str(fd))]
         x_dot = spot_dot['Date']
         y_dot = spot_dot['Value']
-        ax.plot(x_dot, y_dot, marker='o', markersize=10,label = None)
+        ax.plot(x_dot, y_dot, marker='o', markersize=10,label = 'Trade date',color = str(color))
         
         
         futures_plot = merged_futures[(merged_futures['Date']==str(fd))]
         x_fut = futures_plot['trade dates']
         y_fut = futures_plot['Value']
-        ax.plot(x_fut, y_fut, label = fd)
+        ax.plot(x_fut, y_fut, label = fd, color = str(color))
         
         
     ax.legend(loc='best')
@@ -308,30 +314,27 @@ def graph_curves(df):
     return(fig)
 
 #%%
-#main program
-s = sc.scrape(os.getcwd())
-file = s.config_file('key.json')
-key = file['api_key']    
-
-wti_list = ['PET.RWTC.D','PET.RCLC1.D','PET.RCLC2.D','PET.RCLC3.D','PET.RCLC4.D']
-brent_list = ['PET.RBRTE.D']
-eia = eia_api_data(key)
-wti = eia.gather_prices(wti_list)
-brent = eia.gather_prices(brent_list)
-wti_add = wti.copy()
+if __name__ == "__main__":
+    #initiate the scrape_module
+    s = sc.scrape(os.getcwd())
+    file = s.config_file('key.json')
+    key = file['api_key']    
+    #initiate the api class with the key and api product codes
+    wti_list = ['PET.RWTC.D','PET.RCLC1.D','PET.RCLC2.D','PET.RCLC3.D','PET.RCLC4.D']
+    eia = eia_api_data(key)
+    wti = eia.gather_prices(wti_list)
+    wti_add = wti.copy()
+    #calculate forward curves
+    #TODO: automaically include the most recent date by default
+    forward_dates = ['2018-04-02','2019-04-01','2018-10-05']
+    spot,futures = spot_futures(wti)
+    merged = product_futures(futures,specified_dates=forward_dates,all_data=False)
+    #merged.to_csv(r'C:\Users\mossgrant\data_files\fwd.csv',index=False)
+    #calculate differentials and returns for each contract
+    ret = contract_returns(wti_add)
+    #ret.to_csv(r'C:\Users\mossgrant\data_files\contract_returns.csv',index=False)
+    #plot the forward curves overlayed against spot prices and on their own
 #%%
-forward_dates = ['2018-04-02','2019-04-01','2018-10-05']
-#merged = product_futures(wti_add,all_data=True)
-spot,futures = spot_futures(wti)
-merged = product_futures(futures,specified_dates=None,all_data=True)
-merged.to_csv(r'C:\Users\mossgrant\data_files\fwd.csv',index=False)
-
-#%%
-ret = contract_returns(wti_add)
-ret.to_csv(r'C:\Users\mossgrant\data_files\contract_returns.csv',index=False)
-#%%
-#default min date should be the min specified_date
-fig = graph_overlay(merged,spot,forward_dates)     
-fig2 = graph_curves(merged)
-
+    fig = graph_overlay(merged,spot,forward_dates)     
+    fig2 = graph_curves(merged)
 #%%
