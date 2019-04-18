@@ -1,5 +1,6 @@
 #TODO: take a look at futures prices here:
 #https://ca.finance.yahoo.com/quote/CL%3DF/futures?p=CL%3DF
+import warnings
 import pandas as pd
 import requests
 import os
@@ -9,7 +10,7 @@ import matplotlib.pyplot as plt
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
 headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
-from Documents.web_scraping.scraping_modules import scraping as sc
+from web_scraping.scraping_modules import scraping as sc
 from calendar import monthrange
 from pandas.plotting import register_matplotlib_converters
 register_matplotlib_converters()
@@ -275,19 +276,33 @@ class futures(trading_rules):
                         Note: all_data=True takes a while ~10 seconds to calculate. 
                         This can be sped up by calculating days in month only once for each month (see futures_dates function)
         '''
-        
+         
         if not all_data and specified_dates == None:
             raise Exception('A list of dates was not specified. Either provide a list of dates, or set all_date=True')
         
         if specified_dates != None and all_data == False:
             #use this when only a few futures curves need to be calculated
-            #only calculate futures curves for specified start dates
+            #need to check if the user enters in a weekend.
             l = []
             for date in specified_dates:
-                slicer = product_frame[(product_frame['Date']==date)].copy() #adding .copy() avoids a setting with copy warning
-                x = self.transformation(slicer)
-                l.append(x)
-                df = pd.concat(l)
+                
+                #check if the user input dates match the correct format
+                try:
+                    check_date = datetime.strptime(date,'%Y-%m-%d')
+                except:
+                    raise Exception(str(date)+' does not follow %Y-%m-%d date format')
+                
+                #next check if the date is a weekday (trade day)
+                
+                if check_date.weekday() not in [5,6]:
+                
+                    slicer = product_frame[(product_frame['Date']==date)].copy() #adding .copy() avoids a setting with copy warning
+                    x = self.transformation(slicer)
+                    l.append(x)
+                    df = pd.concat(l)
+                else:
+                    warnings.warn(str(date)+' is not a weekday. Enter a different date')
+                
             df = self.apply_days(df)
         
         elif specified_dates == None and all_data:  
@@ -301,9 +316,9 @@ class futures(trading_rules):
 
     def graph_colors(self,n):
         ''' creates a list of ordered colors to use for graphing '''
-        co = ['b','g','r','c','m','y','k','w']
-        r = int(math.ceil(n/len(co)))
-        color_list = co*r
+        col = ['b','g','r','c','m','y','k','w']
+        r = int(math.ceil(n/len(col)))
+        color_list = col*r
         color_list = color_list[:n]
         return(color_list)
     
@@ -336,7 +351,7 @@ class futures(trading_rules):
         
         colors = self.graph_colors(len(forward_dates))
       
-        
+        #TODO: add something when there is no spot price!
         for fd,color in zip(forward_dates,colors):
             #plot a dot on the spot line where the futures curve applies:
             spot_dot = merged_spot[(merged_spot['Date']==str(fd))]
@@ -350,7 +365,7 @@ class futures(trading_rules):
             y_fut = futures_plot['Value']
             ax.plot(x_fut, y_fut, label = fd, color = str(color))
             
-            
+        
         ax.legend(loc='best')
         return(fig)
     
@@ -369,7 +384,9 @@ class futures(trading_rules):
         return(fig)
 
 #%%
+#TODO: calculate if your "trades" executed at custom dates are in the money! Use various shades of green and red to accomplish this
 if __name__ == "__main__":
+    #TODO: look into a way around requeting the data everytime this is run...
     wti_list = ['PET.RWTC.D','PET.RCLC1.D','PET.RCLC2.D','PET.RCLC3.D','PET.RCLC4.D']
     #instantiate the scrape_module and gather the neccecary data
     s = sc.scrape(os.getcwd())
@@ -382,13 +399,13 @@ if __name__ == "__main__":
     
     #instantiate the futures class. One instantiation is needed for each product
     wti_futures = futures(wti_list)
-    forward_dates = ['2018-04-02','2019-04-01','2018-10-05']
+    forward_dates = ['2018-04-02','2019-04-01','2018-10-05','2019-04-12']
     spot,futures = wti_futures.spot_futures(wti)
     wti_forward_data = wti_futures.product_futures(futures,specified_dates=forward_dates,all_data=False)
-    #merged.to_csv(r'C:\Users\mossgrant\data_files\fwd.csv',index=False)
+    #wti_forward_data.to_csv(r'C:\Users\mossgrant\data_files\fwd\fwd.csv',index=False)
     #calculate differentials and returns for each contract
     ret = wti_futures.contract_returns(wti_add)
-    #ret.to_csv(r'C:\Users\mossgrant\data_files\contract_returns.csv',index=False)
+    #ret.to_csv(r'C:\Users\mossgrant\data_files\fwd\contract_returns.csv',index=False)
     #graph the output
     fig = wti_futures.graph_overlay(wti_forward_data,spot,forward_dates)     
     fig2 = wti_futures.graph_curves(wti_forward_data)
