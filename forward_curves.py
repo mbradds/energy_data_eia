@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
 headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
-from web_scraping.scraping_modules import scraping as sc
+from Documents.web_scraping.scraping_modules import scraping as sc
 from calendar import monthrange
 from pandas.plotting import register_matplotlib_converters
 register_matplotlib_converters()
@@ -123,28 +123,62 @@ class trading_rules:
         #date = datetime.strptime(date_string,'%Y-%m-%d')
         business = bool(len(pd.bdate_range(date, date)))
         return(business)
-
-    def nymex_rules(self,date):
-        '''returns the last trade date for any given date (month)'''
+    
+    # for other liquid products, the cutoff is the last business day of the month
+    
+    def nymex_rules_liquids(self,date,saved={}):
+        key = str(date.year)+'-'+str(date.month)
         
+        if key in saved:
+            return(saved[key],saved)
+        else:
+            
+        
+            last_day_month = monthrange(date.year,date.month)[1]
+            cutoff_str = str(date.year)+'-'+str(date.month)+'-'+str(last_day_month)
+            cutoff = datetime.strptime(cutoff_str,'%Y-%m-%d')
+            
+            
+            if self.business_day(cutoff):
+                saved.update({key:cutoff})
+                return(cutoff,saved)
+            
+            else:
+                while not self.business_day(cutoff):
+                    cutoff = cutoff - relativedelta(days=1)
+                saved.update({key:cutoff})
+                return(cutoff,saved)
+        
+
+    def nymex_rules_WTI(self,date,saved={}):
+        '''returns the last trade date for any given date (month)
+        uses memoization by saving cutuff dates for each month
+        '''
+        
+        key = str(date.year)+'-'+str(date.month)
         cutoff_str = str(date.year)+'-'+str(date.month)+'-'+str(25)
         cutoff = datetime.strptime(cutoff_str,'%Y-%m-%d')
         
-        #determine if the 25th of the month is a business day. If not, then find the next business day
-        #if not business_day(cutoff):
+        if key in saved:
+            return(saved[key],saved)
         
-        while not self.business_day(cutoff):
-            cutoff = cutoff - relativedelta(days=1)
+        else:
         
-        three_days = 0
-        while three_days < 3:
+            #determine if the 25th of the month is a business day. If not, then find the next business day
+            #if not business_day(cutoff):
             
-            cutoff = cutoff - relativedelta(days=1)
+            while not self.business_day(cutoff):
+                cutoff = cutoff - relativedelta(days=1)
             
-            if self.business_day(cutoff):
-                three_days = three_days+1
-        
-        return(cutoff) 
+            three_days = 0
+            while three_days < 3:
+                
+                cutoff = cutoff - relativedelta(days=1)
+                
+                if self.business_day(cutoff):
+                    three_days = three_days+1
+            saved.update({key:cutoff})
+            return(cutoff,saved)
 
 class futures(trading_rules):
     '''inherits the trading rules, and applies them to real data.'''
@@ -202,8 +236,10 @@ class futures(trading_rules):
         return(spot,futures)
 
     #TODO: the entire code can be sped up here. Right now, the days in the month are calculated for every day. Could use dynamic programming algo to lookup     
-    def futures_dates(self,date):
+    def futures_dates(self,date,saved={}):
         '''For a given date, determines all the days in the month'''
+        
+        
         date_list = []
         year = str(date.year)
         month = str(date.month)
@@ -212,7 +248,13 @@ class futures(trading_rules):
             date_string = year+'-'+month+'-'+str(d)
             date_string = datetime.strptime(date_string,'%Y-%m-%d')
             date_list.append(date_string)
-        return(date_list)
+            
+        key = str(month)+'-'+str(year)
+        if key in saved:
+            return[saved[key],saved]
+        else:
+            saved.update({key:date_list})
+            return[date_list,saved]
 
 
     def transformation(self,df):
@@ -224,18 +266,41 @@ class futures(trading_rules):
         #determine which rules to use!
         #TODO: add more rules as prodcuts are added (RBOB gasoline, propane, etc)
         if 'PET.RWTC.D' in self.api_codes:
-            trade_rules = self.nymex_rules
+            trade_rules = self.nymex_rules_WTI
+        else:
+            trade_rules = self.nymex_rules_liquids
         
         
         df['months to add'] = [int(x[-1]) if x.find('Spot')==-1 else 0 for x in df['Data']]
         #calculate the cutoff for all dates. If a date for any contract is > cutoff, then the months to add needs to incease by 1!
-        df['cutoff'] = [trade_rules(x) if r in [1,2,3,4] else np.nan for x,r in zip(df['Date'],df['months to add'])]
-            
+        #df['cutoff'] = [trade_rules(x) if r in [1,2,3,4] else np.nan for x,r in zip(df['Date'],df['months to add'])]
+        
+        #use memoization to speed up the process
+        save={}
+        c_c = []
+        for x,r in zip(df['Date'],df['months to add']):
+            if r in [1,2,3,4]:
+                cut,save = trade_rules(x,save)
+                c_c.append(cut)
+                
+        df['cutoff'] = c_c
         #months to add needs to be increased by one, if the date is greater than the contract one cutoff, specified in the rules
         df['months to add'] = [x+1 if ltd<d else x for x, ltd,d in zip(df['months to add'],df['cutoff'],df['Date'])]
             
         df['futures date'] = [x+relativedelta(months=m) for x,m in zip(df['Date'],df['months to add'])]
-        df['future trade dates'] = [self.futures_dates(x) if m != 0  else np.nan for x,m in zip(df['futures date'],df['months to add'])]
+        #df['future trade dates'] = [self.futures_dates(x)[0] if m != 0  else np.nan for x,m in zip(df['futures date'],df['months to add'])]
+        
+        #use memoization to speed up the process
+        save={}
+        column_construction = []
+        for x,m in zip(df['futures date'],df['months to add']):
+            if m != 0:
+                date_list,save = self.futures_dates(x,save)
+                #df['future trade dates'] = date_list
+                column_construction.append(date_list)
+        
+        df['future trade dates'] = column_construction
+        
         #add all potential trade dates
         split = [x if x.find('Spot')!=-1 else 0 for x in df['Data']][0]
         futures = df[df['Data']!= str(split)]
@@ -388,25 +453,33 @@ class futures(trading_rules):
 if __name__ == "__main__":
     #TODO: look into a way around requeting the data everytime this is run...
     wti_list = ['PET.RWTC.D','PET.RCLC1.D','PET.RCLC2.D','PET.RCLC3.D','PET.RCLC4.D']
+    new_york_harbor = ['PET.EER_EPMRU_PF4_Y35NY_DPG.D','PET.EER_EPMRR_PE1_Y35NY_DPG.D','PET.EER_EPMRR_PE2_Y35NY_DPG.D','PET.EER_EPMRR_PE3_Y35NY_DPG.D','PET.EER_EPMRR_PE4_Y35NY_DPG.D']
     #instantiate the scrape_module and gather the neccecary data
     s = sc.scrape(os.getcwd())
     file = s.config_file('key.json')
     key = file['api_key']    
     eia = eia_api_data(key)
+    new_york = eia.gather_prices(new_york_harbor)
     wti = eia.gather_prices(wti_list)
     wti_add = wti.copy()
+    new_york_add = new_york.copy()
     #TODO: automaically include the most recent date by default
     
     #instantiate the futures class. One instantiation is needed for each product
-    wti_futures = futures(wti_list)
+    #wti_futures = futures(wti_list)
+    #spot,futures = wti_futures.spot_futures(wti)
     forward_dates = ['2018-04-02','2019-04-01','2018-10-05','2019-04-12']
-    spot,futures = wti_futures.spot_futures(wti)
-    wti_forward_data = wti_futures.product_futures(futures,specified_dates=forward_dates,all_data=False)
+    #wti_forward_data = wti_futures.product_futures(futures,specified_dates=forward_dates,all_data=False)
+    
+    ny_futures = futures(new_york_harbor)
+    spot,futures = ny_futures.spot_futures(new_york)
+    ny_forward_data = ny_futures.product_futures(futures,specified_dates=forward_dates,all_data=False)    
+    
     #wti_forward_data.to_csv(r'C:\Users\mossgrant\data_files\fwd\fwd.csv',index=False)
     #calculate differentials and returns for each contract
-    ret = wti_futures.contract_returns(wti_add)
+    ret = ny_futures.contract_returns(wti_add)
     #ret.to_csv(r'C:\Users\mossgrant\data_files\fwd\contract_returns.csv',index=False)
     #graph the output
-    fig = wti_futures.graph_overlay(wti_forward_data,spot,forward_dates)     
-    fig2 = wti_futures.graph_curves(wti_forward_data)
+    fig = ny_futures.graph_overlay(ny_forward_data,spot,forward_dates)     
+    fig2 = ny_futures.graph_curves(ny_forward_data)
 #%%
