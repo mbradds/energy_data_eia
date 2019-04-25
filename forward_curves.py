@@ -10,12 +10,13 @@ import matplotlib.pyplot as plt
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
 headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
-from Documents.web_scraping.scraping_modules import scraping as sc
+#TODO: get rid of the dependency on the scraping module...
+from web_scraping.scraping_modules import scraping as sc
 from calendar import monthrange
 from pandas.plotting import register_matplotlib_converters
 register_matplotlib_converters()
 #%%
-class eia_api_data:
+class EIA:
     '''contains all the neccecary methods to create flat (stacked) real time data from the EIA's API service'''
     
     def __init__(self,key):
@@ -104,7 +105,7 @@ class eia_api_data:
         return(df)
 
 
-class trading_rules:
+class Trading_rules:
     '''Contains the structure of the nymex trading rules for relevant products. See the websites below for the rules.
     
     WTI -- https://www.cmegroup.com/trading/energy/crude-oil/light-sweet-crude_contract_specifications.html
@@ -180,12 +181,12 @@ class trading_rules:
             saved.update({key:cutoff})
             return(cutoff,saved)
 
-class futures(trading_rules):
+class Futures(Trading_rules):
     '''inherits the trading rules, and applies them to real data.'''
     
     def __init__(self,api_codes):
         self.api_codes = api_codes
-        trading_rules.__init__(self)
+        Trading_rules.__init__(self)
 
     #calculates the daily return of eia contract data
     def contract_returns(self,df):
@@ -450,36 +451,39 @@ class futures(trading_rules):
 
 #%%
 #TODO: calculate if your "trades" executed at custom dates are in the money! Use various shades of green and red to accomplish this
+#TODO: figure out how to only call the api if neccecary!
 if __name__ == "__main__":
-    #TODO: look into a way around requeting the data everytime this is run...
-    wti_list = ['PET.RWTC.D','PET.RCLC1.D','PET.RCLC2.D','PET.RCLC3.D','PET.RCLC4.D']
-    new_york_harbor = ['PET.EER_EPMRU_PF4_Y35NY_DPG.D','PET.EER_EPMRR_PE1_Y35NY_DPG.D','PET.EER_EPMRR_PE2_Y35NY_DPG.D','PET.EER_EPMRR_PE3_Y35NY_DPG.D','PET.EER_EPMRR_PE4_Y35NY_DPG.D']
-    #instantiate the scrape_module and gather the neccecary data
+    
+    #initiate api
     s = sc.scrape(os.getcwd())
     file = s.config_file('key.json')
-    key = file['api_key']    
-    eia = eia_api_data(key)
-    new_york = eia.gather_prices(new_york_harbor)
+    key = file['api_key'] 
+    eia = EIA(key)
+    forward_dates = ['2018-04-02','2019-04-01','2018-10-05','2019-04-12','2019-04-22','2019-01-01']
+    
+    #WTI:
+    wti_list = ['PET.RWTC.D','PET.RCLC1.D','PET.RCLC2.D','PET.RCLC3.D','PET.RCLC4.D']
     wti = eia.gather_prices(wti_list)
     wti_add = wti.copy()
-    new_york_add = new_york.copy()
-    #TODO: automaically include the most recent date by default
+    wti_futures = Futures(wti_list)
+    spot,futures = wti_futures.spot_futures(wti)
+    wti_forward_data = wti_futures.product_futures(futures,specified_dates=forward_dates,all_data=False)
+    ret = wti_futures.contract_returns(wti_add)
+    wti_forward_data.to_csv(r'C:\Users\mossgrant\data_files\fwd\fwd.csv',index=False)
+    ret.to_csv(r'C:\Users\mossgrant\data_files\fwd\contract_returns.csv',index=False)
     
-    #instantiate the futures class. One instantiation is needed for each product
-    #wti_futures = futures(wti_list)
-    #spot,futures = wti_futures.spot_futures(wti)
-    forward_dates = ['2018-04-02','2019-04-01','2018-10-05','2019-04-12']
-    #wti_forward_data = wti_futures.product_futures(futures,specified_dates=forward_dates,all_data=False)
+    #New York Harbor Gasoline
+    #new_york_harbor = ['PET.EER_EPMRU_PF4_Y35NY_DPG.D','PET.EER_EPMRR_PE1_Y35NY_DPG.D','PET.EER_EPMRR_PE2_Y35NY_DPG.D','PET.EER_EPMRR_PE3_Y35NY_DPG.D','PET.EER_EPMRR_PE4_Y35NY_DPG.D']
+    #new_york = eia.gather_prices(new_york_harbor)
+    #new_york_add = new_york.copy()
+    #ny_futures = futures(new_york_harbor)
+    #spot,futures = ny_futures.spot_futures(new_york)
+    #ny_forward_data = ny_futures.product_futures(futures,specified_dates=forward_dates,all_data=False)      
+    #ret = ny_futures.contract_returns(wti_add)
     
-    ny_futures = futures(new_york_harbor)
-    spot,futures = ny_futures.spot_futures(new_york)
-    ny_forward_data = ny_futures.product_futures(futures,specified_dates=forward_dates,all_data=False)    
+
     
-    #wti_forward_data.to_csv(r'C:\Users\mossgrant\data_files\fwd\fwd.csv',index=False)
-    #calculate differentials and returns for each contract
-    ret = ny_futures.contract_returns(wti_add)
-    #ret.to_csv(r'C:\Users\mossgrant\data_files\fwd\contract_returns.csv',index=False)
     #graph the output
-    fig = ny_futures.graph_overlay(ny_forward_data,spot,forward_dates)     
-    fig2 = ny_futures.graph_curves(ny_forward_data)
+    fig = wti_futures.graph_overlay(wti_forward_data,spot,forward_dates)     
+    fig2 = wti_futures.graph_curves(wti_forward_data)
 #%%
