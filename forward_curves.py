@@ -10,12 +10,49 @@ import matplotlib.pyplot as plt
 from dateutil.relativedelta import relativedelta
 from datetime import datetime
 headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/39.0.2171.95 Safari/537.36'}
-#TODO: get rid of the dependency on the scraping module...
-from web_scraping.scraping_modules import scraping as sc
+import logging
+import json
 from calendar import monthrange
 from pandas.plotting import register_matplotlib_converters
 register_matplotlib_converters()
 #%%
+
+class Configuration:
+    
+    def __init__(self,directory):
+        self.directory = directory
+        os.chdir(str(directory)) #this should be a raw string
+    
+    def config_file(self,config_file):
+        __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname('__file__')))
+        
+        try:
+            with open(os.path.join(__location__,config_file)) as f:
+                config = json.load(f)
+                return(config)
+
+        except:
+            raise
+            return(None)
+            
+
+    def scrape_logger(self,logger_name):
+        
+        try:
+            name = logger_name.replace('.log','')
+            logger = logging.getLogger(name)
+            if not logger.handlers:
+                logger.propagate = False
+                #logger.setLevel(logging.INFO)
+                handler = logging.FileHandler(logger_name)
+                formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+                handler.setFormatter(formatter)
+                logger.addHandler(handler)
+            return(logger)
+        except:
+            raise
+
+
 class EIA:
     '''contains all the neccecary methods to create flat (stacked) real time data from the EIA's API service'''
     
@@ -236,10 +273,9 @@ class Futures(Trading_rules):
         spot = df[df['Data']== str(split)]
         return(spot,futures)
 
-    #TODO: the entire code can be sped up here. Right now, the days in the month are calculated for every day. Could use dynamic programming algo to lookup     
+
     def futures_dates(self,date,saved={}):
         '''For a given date, determines all the days in the month'''
-        
         
         date_list = []
         year = str(date.year)
@@ -264,7 +300,6 @@ class Futures(Trading_rules):
         to calculate futures curves for all possible dates, or a given input list    
         '''
         
-        #determine which rules to use!
         #TODO: add more rules as prodcuts are added (RBOB gasoline, propane, etc)
         if 'PET.RWTC.D' in self.api_codes:
             trade_rules = self.nymex_rules_WTI
@@ -404,7 +439,6 @@ class Futures(Trading_rules):
         dates_list = [datetime.strptime(date, '%Y-%m-%d').date() for date in forward_dates]
         min_date = min(dates_list)
         
-        #TODO: refactor these names
         spot = spot[(spot['Date'] >= pd.Timestamp(min_date))] #adding pd.Timestamp is neccecary to avoid a matplotlib warning
         merged_futures = merged
         merged_spot = spot
@@ -451,13 +485,12 @@ class Futures(Trading_rules):
 
 #%%
 #TODO: calculate if your "trades" executed at custom dates are in the money! Use various shades of green and red to accomplish this
-#TODO: figure out how to only call the api if neccecary!
 if __name__ == "__main__":
     
     #initiate api
-    s = sc.scrape(os.getcwd())
+    s = Configuration(os.getcwd())
     file = s.config_file('key.json')
-    key = file['api_key'] 
+    key = file['api_key']
     eia = EIA(key)
     forward_dates = ['2018-04-02','2019-04-01','2018-10-05','2019-04-12','2019-04-22','2019-01-01']
     
@@ -469,21 +502,11 @@ if __name__ == "__main__":
     spot,futures = wti_futures.spot_futures(wti)
     wti_forward_data = wti_futures.product_futures(futures,specified_dates=forward_dates,all_data=False)
     ret = wti_futures.contract_returns(wti_add)
-    wti_forward_data.to_csv(r'C:\Users\mossgrant\data_files\fwd\fwd.csv',index=False)
-    ret.to_csv(r'C:\Users\mossgrant\data_files\fwd\contract_returns.csv',index=False)
-    
-    #New York Harbor Gasoline
-    #new_york_harbor = ['PET.EER_EPMRU_PF4_Y35NY_DPG.D','PET.EER_EPMRR_PE1_Y35NY_DPG.D','PET.EER_EPMRR_PE2_Y35NY_DPG.D','PET.EER_EPMRR_PE3_Y35NY_DPG.D','PET.EER_EPMRR_PE4_Y35NY_DPG.D']
-    #new_york = eia.gather_prices(new_york_harbor)
-    #new_york_add = new_york.copy()
-    #ny_futures = futures(new_york_harbor)
-    #spot,futures = ny_futures.spot_futures(new_york)
-    #ny_forward_data = ny_futures.product_futures(futures,specified_dates=forward_dates,all_data=False)      
-    #ret = ny_futures.contract_returns(wti_add)
-    
-
+    wti_forward_data.to_csv(r'ENTER_PATH\fwd.csv',index=False)
+    ret.to_csv(r'ENTER_PATH\contract_returns.csv',index=False)
     
     #graph the output
     fig = wti_futures.graph_overlay(wti_forward_data,spot,forward_dates)     
-    fig2 = wti_futures.graph_curves(wti_forward_data)
+    #fig2 = wti_futures.graph_curves(wti_forward_data)
 #%%
+    
