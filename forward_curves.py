@@ -492,7 +492,7 @@ if __name__ == "__main__":
     file = s.config_file('key.json')
     key = file['api_key']
     eia = EIA(key)
-    forward_dates = ['2018-04-02','2019-04-01','2018-10-05','2019-04-12','2019-04-22','2019-01-01']
+    forward_dates = ['2018-04-02','2018-10-05','2019-04-12','2019-04-22','2019-05-20']
     
     #WTI:
     wti_list = ['PET.RWTC.D','PET.RCLC1.D','PET.RCLC2.D','PET.RCLC3.D','PET.RCLC4.D']
@@ -506,7 +506,8 @@ if __name__ == "__main__":
     ret.to_csv(r'ENTER_PATH\contract_returns.csv',index=False)
     
     #graph the output
-    fig = wti_futures.graph_overlay(wti_forward_data,spot,forward_dates)     
+    fig = wti_futures.graph_overlay(wti_forward_data,spot,forward_dates) 
+    #plt.savefig('forward_curve.png')    
     #fig2 = wti_futures.graph_curves(wti_forward_data)
 #%%
     
